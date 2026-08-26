@@ -1,0 +1,781 @@
+// ==UserScript==
+// @name         Pick Organizer ⭐
+// @namespace    http://tampermonkey.net/
+// @version      0.9
+// @description  通常表示でピックカードの配置管理「Ctrl+F10」「Shift+F10」
+// @author       Ameba Blog User
+// @match        https://blog.ameba.jp/ucs/entry/srventryinsertinput.do*
+// @match        https://blog.ameba.jp/ucs/entry/srventryupdateinput.do*
+// @grant        none
+// @updateURL        https://github.com/personwritep/Pick_Organizer/raw/main/Pick_Organizer.user.js
+// @downloadURL        https://github.com/personwritep/Pick_Organizer/raw/main/Pick_Organizer.user.js
+// ==/UserScript==
+
+
+let retry=0;
+let interval=setInterval(wait_target, 100);
+function wait_target(){
+    retry++;
+    if(retry>10){
+        clearInterval(interval); }
+    let target=document.querySelector('#cke_1_contents');
+    if(target){
+        clearInterval(interval);
+        main(); }}
+
+
+
+function main(){
+    let editor_iframe;
+    let iframe_doc;
+    let iframe_body;
+
+    let ua=0; // Chromeの場合のフラグ
+    let agent=window.navigator.userAgent.toLowerCase();
+    if(agent.indexOf('firefox') > -1){ ua=1; } // Firefoxの場合のフラグ
+
+    let task=0; // ツールの ON/OFF
+    let posit_set; // 中央寄せ・左寄せ
+    let border_width;
+    let color_input=[]; // 4個のカラー設定枠
+    let setting=[];
+
+
+    if(read_locals()){
+        setting=read_locals(); }
+    if(setting.length!=8){
+        setting=['#aaa','1','#aaa','1','','space-between','', 0]; }
+    // 運用枠線色，運用枠線幅, M枠線色，M枠線幅，Mエリア背景色，M配置特性,
+    // (予備), ヘルプ表示
+    write_locals(setting);
+
+
+    function read_locals(){
+        let read_json=localStorage.getItem('PickO'); // ローカルストレージ 読込
+        return JSON.parse(read_json); }
+
+    function write_locals(data){
+        let write_json=JSON.stringify(data);
+        localStorage.setItem('PickO', write_json); } // ローカルストレージ 保存
+
+
+
+    let target=document.getElementById('cke_1_contents'); // 監視 target
+    let monitor=new MutationObserver( catch_key );
+    monitor.observe(target, {childList: true}); // ショートカット待受け開始
+
+    catch_key();
+
+    function catch_key(){
+        if(document.querySelector('.cke_wysiwyg_frame')){ //「通常表示」から実行開始
+            let editor_iframe=document.querySelector('.cke_wysiwyg_frame');
+            let iframe_doc=editor_iframe.contentWindow.document;
+
+            if(task==1){
+                panel(); }
+
+            iframe_doc.addEventListener('keydown', check_key);
+            document.addEventListener('keydown', check_key);
+
+            function check_key(event){
+
+
+                if(event.keyCode==13 && iframe_doc.hasFocus()){
+                    remove_warH(); } // 改行入力が連続マークとなるのを抑止
+
+                let gate=-1;
+                if(event.ctrlKey || event.shiftKey){
+                    if(event.keyCode==121){ //「Ctrl+F10」
+                        event.preventDefault(); gate=1; }
+                    if(gate==1){
+                        event.stopImmediatePropagation();
+                        task_s(); }}}
+
+            function task_s(){
+                if(task==0){
+                    task=1;
+                    panel();
+                    general(); }
+                else{
+                    task=0;
+                    remove_panel();
+                    close_warH(); }}}
+
+    } // catch_key()
+
+
+
+    function panel(){
+        monitor.disconnect();
+
+        let disp=document.createElement("div");
+        disp.setAttribute("id", "disp_po");
+        disp.innerHTML=
+            '　　■エリア指定：空白行を Ctrl+Click　'+
+            '■Cardをエリアに配置/除外：Alt+Click</span>'+
+            '<div id="expo_disp">'+
+            '　　■Cardをエリアに配置/除外：Alt+Click</span>　'+
+            '<span class="lcpo_hint hint">■エリア背景色：'+
+            '<span id="lcpo_w"><span id="lcpo_color">　</span></span></span> '+
+            '<input id="lcpo_trance" type="number" max="10" min="0.1" step="0.1">'+
+            '：濃度　 配置：'+
+            '<span class="lapo_hint hint">'+
+            '<svg class="alpo" viewBox="0 0 256 480">'+
+            '<path d="M192 127v257c0 18-22 27-34 14L29 270c-8-8-8-20 '+
+            '0-28l129-129c13-13 34-4 34 14z"></path></svg>'+
+            '<svg class="abpo" viewBox="0 0 512 512">'+
+            '<rect x="20" y="100" width="130" height="340"></rect>'+
+            '<rect x="362" y="100" width="130" height="340"></rect></svg>'+
+            '<svg class="acpo" viewBox="0 0 512 512">'+
+            '<rect x="105" y="100" width="130" height="340"></rect>'+
+            '<rect x="280" y="100" width="130" height="340"></rect></svg>'+
+            '<svg class="arpo" viewBox="0 0 144 480">'+
+            '<path d="M0 385V127c0-18 22-27 34-14l129 129c8 8 8 20 0 '+
+            '28L34 399C22 411 0 402 0 385z"></path></svg></span>　'+
+            '</div>'+
+
+            '<div>'+
+            '<span id="hpo_hide">Ⓗ</span>　　■Card配置 左◁中央▷右：Ctrl+Click　'+
+            '■枠線：Shift+Click　枠線色：<span class="lbpo_hint hint">'+
+            '<span id="lbpo_w"><span id="lbpo_color">　</span></span></span> '+
+            '<span class="lbdpo_hint hint">'+
+            '<span id="lbpo_disp">　</span>'+
+            '<input id="lpoborder" type="number" max="5" min="0"></span>'+
+            '　M：'+
+            '<span class="mpluspo_hint hint">'+
+            '<svg id="memopo_plus" viewBox="0 0 448 512">'+
+            '<path d="M416 208H272V64c0-18-14-32-32-32h-32c-18 0-32 14-32 '+
+            '32v144H32c-18 0-32 14-32 32v32c0 18 14 32 32 32h144v144c0 18 14 '+
+            '32 32 32h32c18 0 32-14 32-32V304h144c18 0 32-14 '+
+            '32-32v-32c0-18-14-32-32-32z"></path></svg></span> '+
+            '<span class="mppo_hint hint">'+
+            '<svg id="memopo_paste" viewBox="0 0 480 480">'+
+            '<path d="M228 285L169 285C160 285 150 284 144 293C132 309 153 '+
+            '326 162 336C189 368 216 399 243 430C252 441 263 460 278 460C290 '+
+            '460 296 450 303 442C318 425 332 408 347 391C367 369 386 346 405 '+
+            '324C413 315 421 303 412 292C405 284 396 285 387 285L334 285C334 '+
+            '240 330 193 317 151C307 123 292 97 267 80C218 48 153 58 106 88C95 '+
+            '95 85 104 76 114C71 119 66 125 66 132C65 141 72 148 81 147C91 146 '+
+            '101 142 111 139C135 134 163 133 185 147C201 158 210 174 216 '+
+            '192C226 222 227 254 228 285z"/></svg></span>'+
+            '</div>';
+
+        let css=
+            '#cke_1_contents { display: flex; flex-direction: column; } '+
+            '#disp_po { position: relative; margin: 0 0 5px; padding: 4px 0 1px; '+
+            'font: normal 16px/24px Meiryo; color: #fff; background: #1976d2; '+
+            'white-space: nowrap; user-select: none; } '+
+
+            '#disp_po .hint { position: relative; } '+
+            '#disp_po .hint:hover::after { position: absolute; z-index: 1; height: 23px; '+
+            'padding: 1px 9px 0; font: 16px Meiryo; color: #fff; background: #000; } '+
+            '#disp_po .lcpo_hint.hint:hover::after { top: -1px; left: 150px; '+
+            'content: " ◀ Click：カラーパレット表示 "; } '+
+            '#disp_po .lapo_hint.hint:hover::after { top: -1px; left: -286px; '+
+            'content: " エリア内のタイル配置を選択 "; } '+
+            '#disp_po .lbpo_hint.hint:hover::after { top: -25px; left: -209px; '+
+            'content: " カラーパレット表示：Click ▼ "; } '+
+            '#disp_po .lbdpo_hint.hint:hover::after { top: -25px; left: -46px; '+
+            'content: " 枠線幅： ▼ "; } '+
+            '#disp_po .mpluspo_hint.hint:hover::after { top: -25px; left: -161px; '+
+            'content: " デザイン登録：Click ▼ "; } '+
+            '#disp_po .mppo_hint.hint:hover::after { top: -25px; left: -209px; '+
+            'content: " 登録デザインを適用：Click ▼ "; } '+
+
+            '#expo_disp { position: absolute; top: 4px; background: #1976d2; z-index: -1; } '+
+            '#hpo_hide { position: absolute; top: 28px; left: 4px; font-size: 14px; '+
+            'cursor: pointer; } '+
+            '#disp_po .lcpo_hint { margin-left: 3px; } '+
+            '#lcpo_w { display: inline-block; overflow: hidden; width: 16px; '+
+            'height: 16px; border: 1px solid #fff; background: #fff; vertical-align: -3px; } '+
+            '#lcpo_color { cursor: pointer; background: #fff; } '+
+            '#lcpo_trance { height: 22px; width: 15px; border: none; vertical-align: 1px; '+
+            'color: transparent; background: transparent; margin-left: 2px; } '+
+            '#lcpo_trance::-webkit-inner-spin-button { opacity: 1; } '+
+
+            '#disp_po svg { cursor: pointer; width: 16px; height: 16px; padding: 1px; '+
+            'border-radius: 2px; fill: #1976d2; background: #fff; vertical-align: -3px; } '+
+            '#disp_po .alpo, #disp_po .abpo, #disp_po .acpo, #disp_po .arpo { '+
+            'margin-right: 5px; } '+
+
+            '#lbpo_w { display: inline-block; width: 16px; height: 16px; overflow: hidden; '+
+            'border: 1px solid #fff; background: #fff; vertical-align: -3px; } '+
+            '#lbpo_color { cursor: pointer; background: #fff; } '+
+            '#lbpo_disp { display: inline-block; position: relative; width: 32px; '+
+            'margin-right: -14px; color: #fff; background: #1976d2; } '+
+            '#lpoborder { height: 22px; width: 30px; border: none; background: none; } '+
+            '#lpoborder::-webkit-inner-spin-button { opacity: 1; } ';
+
+        if(ua==1){
+            css+=
+                '#disp_po .lcpo_hint { margin-left: 2px; } '+
+                '#lcpo_trance { width: 18px; } '+
+                '#lpoborder { width: 32px; }'; }
+
+
+        let style=document.createElement('style');
+        style.innerHTML=css;
+        disp.appendChild(style);
+
+        editor_iframe=document.querySelector('.cke_wysiwyg_frame');
+        if(editor_iframe){
+            if(!target.querySelector('#disp_po')){
+                target.insertBefore(disp, editor_iframe); }
+
+            iframe_doc=editor_iframe.contentWindow.document;
+            if(iframe_doc){
+                let iframe_html=iframe_doc.querySelector('html');
+                iframe_body=iframe_doc.querySelector('body');
+                if(iframe_html && iframe_body){
+                    let pcard_style=iframe_doc.createElement('style');
+                    let css=
+                        '.warH { box-shadow: #fff -4px 0px, #2196f3 -8px 0px; '+
+                        'min-height: 1.6em; } '+
+                        '.warH .pickCreative_addShopButton { display: none !important; } '+
+                        'a[data-img-url].pickCreative::after { font: bold 12px Meiryo; '+
+                        'content: "Edit"; background: rgb(0 0 0 /20%); }';
+
+                    pcard_style.setAttribute("id", "pcard_style");
+                    pcard_style.innerHTML=css;
+                    if(iframe_html.querySelector('#pcard_style')){
+                        iframe_html.querySelector('#pcard_style').remove(); }
+                    iframe_html.appendChild(pcard_style); }}}
+
+        monitor.observe(target, {childList: true});
+
+        let disp_po=document.querySelector('#disp_po');
+        disp_po.style.display='block';
+
+        help_set();
+
+    } // panel()
+
+
+
+    function remove_panel(){
+        if(target.querySelector('#disp_po')){
+            target.querySelector('#disp_po').style.display='none'; }}
+
+
+
+    function close_warH(){
+        if(document.querySelector('.cke_wysiwyg_frame') !=null){ //「通常表示」から実行開始
+            let editor_iframe=document.querySelector('.cke_wysiwyg_frame');
+            let iframe_doc=editor_iframe.contentWindow.document;
+            let warH=iframe_doc.querySelector('.warH');
+            if(warH && !warH.querySelector('.pickCreative')){
+                remove_warH(); }
+            else{
+                hide_warH(); }}}
+
+    function remove_warH(){ // warHを削除
+        if(document.querySelector('.cke_wysiwyg_frame') !=null){ //「通常表示」から実行開始
+            let editor_iframe=document.querySelector('.cke_wysiwyg_frame');
+            let iframe_doc=editor_iframe.contentWindow.document;
+            let warH=iframe_doc.querySelector('.warH');
+            if(warH && !warH.querySelector('.pickCreative')){
+                warH.remove(); }}}
+
+    function hide_warH(){ // warHマークを非表示
+        let pcard_style=iframe_doc.querySelector('#pcard_style');
+        if(pcard_style){
+            pcard_style.innerHTML=
+                '.warH .pickCreative_addShopButton { display: none !important; } '+
+                'a[data-img-url].pickCreative::after { font: bold 12px Meiryo; '+
+                'content: "Edit"; background: rgb(0 0 0 /20%); }'; }}
+
+
+
+    function help_set(){
+        if(setting[7]==1){
+            let hints=document.querySelectorAll('#disp_po .hint');
+            for(let k=0; k<hints.length; k++){
+                hints[k].classList.replace('hint', 'hint_'); }}
+
+        let hpo_hide=document.querySelector('#hpo_hide');
+        if(hpo_hide){
+            hpo_hide.onclick=function(){
+                let ok=confirm(
+                    "　　⚫ 操作説明のヘルプの表示・非表示を変更します\n"+
+                    "　　　  左端の Ⓗボタンを押すと 何度でも変更できます");
+                if(ok){
+                    help_toggle();
+                    write_locals(setting); }}}
+
+        function help_toggle(){
+            if(setting[7]==0){
+                let hints=document.querySelectorAll('#disp_po .hint');
+                for(let k=0; k<hints.length; k++){
+                    hints[k].classList.replace('hint', 'hint_'); }
+                setting[7]=1; }
+            else{
+                let hints=document.querySelectorAll('#disp_po .hint_');
+                for(let k=0; k<hints.length; k++){
+                    hints[k].classList.replace('hint_', 'hint'); }
+                setting[7]=0; }}}
+
+
+
+    function general(){
+        let editor_iframe;
+        let iframe_doc;
+        let iframe_body;
+
+        let target1=document.querySelector('#root'); // ダイアログ表示で励起
+        let monitor1=new MutationObserver(organize);
+        monitor1.observe(target1, {childList: true});
+
+        let target2=document.querySelector('#cke_1_contents');
+        let monitor2=new MutationObserver(organize);
+        monitor2.observe(target2, {childList: true});
+
+        organize();
+
+        function organize(){
+            editor_iframe=document.querySelector('.cke_wysiwyg_frame');
+            if(editor_iframe){
+                iframe_doc=editor_iframe.contentWindow.document;
+                if(iframe_doc){
+                    iframe_body=iframe_doc.querySelector('body');
+                    if(iframe_body){
+
+                        env_sensor();
+                        wrap_all();
+                        layout();
+                        set_warH();
+                        flex_set();
+                        bd_color();
+                        bd_width();
+
+                        mem_plus();
+                        mem_paste();
+
+                    }}}} // organize()
+
+    } //general()
+
+
+
+    function env_sensor(){
+        let warH=iframe_doc.querySelector('.warH');
+        if(!warH || !warH.querySelector('.pickCreative')){
+            let expo_disp=document.querySelector('#expo_disp');
+            if(expo_disp){
+                expo_disp.style.zIndex='-1'; }}
+        else{
+            let expo_disp=document.querySelector('#expo_disp');
+            if(expo_disp){
+                expo_disp.style.zIndex='1';
+                bg_color();
+                flex_set();
+            }}}
+
+
+
+    function wrap_all(){
+        let pickC=iframe_body.querySelectorAll('.pickCreative');
+        for(let k=0; k<pickC.length; k++){
+            wrap(pickC[k]); }
+
+        function wrap(C){
+            if(task==1){
+                let type=C.getAttribute('data-layout-type');
+                if(type=='1' || type=='2' || type=='5'){
+                    let C_root=C.parentNode.parentNode;
+                    let warC=iframe_doc.createElement('div');
+                    warC.setAttribute('class', 'warC');
+                    if(!C_root.closest('.warC')){
+                        warC.appendChild(C_root.cloneNode(true));
+                        C_root.parentNode.replaceChild(warC, C_root);
+                        warC.style.width='fit-content'; }}
+
+                else if(type=='3' || type=='4'){
+                    let warC=iframe_doc.createElement('div');
+                    warC.setAttribute('class', 'warC');
+                    if(!C.closest('.warC')){
+                        warC.appendChild(C.cloneNode(true));
+                        C.parentNode.replaceChild(warC, C);
+                        warC.style.width='fit-content'; }}}}
+    } // wrap_all()
+
+
+
+    function layout(){
+        let pickC=iframe_body.querySelectorAll('.pickCreative');
+
+        for(let k=0; k<pickC.length; k++){
+            pickC[k].onclick=function(event){
+                if(event.ctrlKey){
+                    event.preventDefault();
+                    event.stopImmediatePropagation();
+                    card_edit_c(pickC[k]); }
+                else if(event.shiftKey){
+                    event.preventDefault();
+                    event.stopImmediatePropagation();
+                    card_edit_s(pickC[k]); }
+                else if(event.altKey){
+                    event.preventDefault();
+                    event.stopImmediatePropagation();
+                    if(!pickC[k].closest('.warH')){ // warH外の場合
+                        get_in(pickC[k]); }
+                    else{ // warH内の場合
+                        get_out(pickC[k]); }}}}
+
+
+        function card_edit_c(C){
+            if(task==1){
+                let warC=C.closest('.warC');
+                if(warC){
+                    if(warC.style.marginLeft!='auto'){
+                        warC.style.marginLeft='auto';
+                        warC.style.marginRight='auto'; }
+                    else if(warC.style.marginLeft=='auto' && warC.style.marginRight=='auto'){
+                        if(warC.closest('.warH')){
+                            warC.style.marginRight='10px'; }
+                        else{
+                            warC.style.marginRight=''; }}
+                    else if(warC.style.marginLeft=='auto' && warC.style.marginRight!='auto'){
+                        if(warC.closest('.warH')){
+                            warC.style.marginRight='10px';
+                            warC.style.marginLeft='10px'; }
+                        else{
+                            warC.style.marginRight='';
+                            warC.style.marginLeft=''; }}}}}
+
+
+        function card_edit_s(C){
+            if(task==1){
+                let warC=C.closest('.warC');
+                if(warC){
+                    if(warC.style.outlineColor==setting[0]
+                       && warC.style.outlineWidth==setting[1]+'px'){ // 設定一致
+                        warC.style.outline='';
+                        warC.style.outlineOffset='';
+                        warC.style.background='';
+                        warC.style.borderRadius=''; } // 枠線を非表示
+                    else {
+                        warC.style.outline=setting[1]+'px solid '+setting[0];
+                        warC.style.outlineOffset='1px';
+                        warC.style.background='#fff';
+                        warC.style.borderRadius='4px'; }}}}
+
+
+        function get_in(C){
+            if(task==1){
+                let editor=iframe_doc.querySelector('.cke_editable');
+                if(editor){
+                    let warH=editor.querySelector('.warH');
+                    if(warH){
+                        let warC=C.closest('.warC');
+                        if(warC){
+                            warH.appendChild(warC);
+                            warC.style.margin='10px'; }}}
+                env_sensor();
+            }}
+
+
+        function get_out(C){
+            if(task==1){
+                let editor=iframe_doc.querySelector('.cke_editable');
+                if(editor){
+                    let warH=editor.querySelector('.warH');
+                    let warC=C.closest('.warC');
+                    if(warC){
+                        editor.insertBefore(warC, warH.nextElementSibling);
+                        warC.style.margin='';
+                        warH.insertAdjacentHTML('afterend', '<p>\u00A0</p>'); }}
+                env_sensor();
+            }}
+
+    } // layout()
+
+
+
+    function set_warH(){
+        let editor=iframe_doc.querySelector('.cke_editable');
+        if(editor){
+            editor.onclick=function(event){
+                if(event.ctrlKey){
+                    let warH=editor.querySelector('.warH');
+                    if(!warH){
+                        set(event); }
+                    else{
+                        if(!warH.querySelector('.pickCreative')){
+                            warH.remove();
+                            set(event); }}}}}
+
+        function set(event){
+            if(task==1){
+                let elm=iframe_doc.elementFromPoint(event.clientX, event.clientY);
+                if(elm.tagName=='P' || elm.tagName=='DIV'){
+                    let _warH=iframe_doc.createElement('div');
+                    _warH.setAttribute('class', 'warH');
+                    _warH.style.display='flex';
+                    _warH.style.justifyContent='space-between';
+                    _warH.style.flexWrap='wrap';
+                    _warH.style.alignItems='stretch';
+                    _warH.style.height='auto';
+                    _warH.style.padding='10px 0';
+                    editor.insertBefore(_warH, elm);
+
+                    editor.blur();
+                    _warH.focus(); }}}
+
+    } // set_warH()
+
+
+
+    function flex_set(){
+        if(task==1){
+            let alpo=document.querySelector('#disp_po .alpo');
+            let abpo=document.querySelector('#disp_po .abpo');
+            let acpo=document.querySelector('#disp_po .acpo');
+            let arpo=document.querySelector('#disp_po .arpo');
+
+            let editor=iframe_doc.querySelector('.cke_editable');
+            if(editor){
+                let warH=editor.querySelector('.warH');
+                if(warH){
+                    alpo.onclick=function(){
+                        warH.style.justifyContent='flex-start';
+                        neutral_all(); }
+                    abpo.onclick=function(){
+                        warH.style.justifyContent='space-between';
+                        neutral_all(); }
+                    acpo.onclick=function(){
+                        warH.style.justifyContent='center';
+                        neutral_all(); }
+                    arpo.onclick=function(){
+                        warH.style.justifyContent='flex-end';
+                        neutral_all(); }
+
+                    function neutral_all(){
+                        let warC=warH.querySelectorAll('.warC');
+                        for(let k=0; k<warC.length; k++){
+                            warC[k].style.margin='10px'; }}}}
+
+        }} // flex_set()
+
+
+
+    function bg_color(){
+        let set_color;
+        let lcpo_color=document.querySelector('#lcpo_color');
+        let lcpo_trance=document.querySelector('#lcpo_trance');
+        let editor=iframe_doc.querySelector('.cke_editable');
+        if(editor){
+            let warH=editor.querySelector('.warH');
+            if(warH){
+                let warH_bgc=warH.style.backgroundColor;
+                if(warH_bgc){
+                    lcpo_color.style.backgroundColor=warH_bgc;
+                    lcpo_trance.value=rgba_trance(warH_bgc);
+                    set_color=warH_bgc; }
+                else{ // 背景色の設定が無い時は、透過のままにする
+                    lcpo_color.style.backgroundColor='rgb(255, 255, 255)';
+                    lcpo_trance.value=1;
+                    set_color='rgb(255, 255, 255)'; }
+
+                import_color(lcpo_color, warH, 'bg');
+
+                let target_elem=lcpo_color;
+                let monitor_elem=new MutationObserver(import_c);
+                monitor_elem.observe(target_elem, {attributes: true});
+                function import_c(){
+                    if(target_elem.style.opacity==2){
+                        monitor_elem.disconnect();
+                        setTimeout(()=>{
+                            lcpo_trance.value=1;
+                            set_color=lcpo_color.style.backgroundColor;
+                            target_elem.style.opacity=1;
+                        }, 40);
+                        monitor_elem.observe(target_elem, {attributes: true}); }}
+
+
+                lcpo_trance.addEventListener('input', function(event){
+                    event.preventDefault();
+                    let set_color_tmp=rgba(set_color, lcpo_trance.value);
+                    let lcpo_color=document.querySelector('#lcpo_color');
+                    lcpo_color.style.backgroundColor=set_color_tmp;
+                    let warH=editor.querySelector('.warH');
+                    if(task==1){
+                        warH.style.backgroundColor=set_color_tmp; }});
+
+
+                function rgba(c_val, alpha){ // 透過色の白背景時の非透過色に変換
+                    let R, G, B;
+                    let c_val_arr=c_val.split(',');
+                    R=c_val_arr[0].replace(/[^0-9]/g, '');
+                    G=c_val_arr[1].replace(/[^0-9]/g, '');
+                    B=c_val_arr[2].replace(/[^0-9]/g, '');
+                    return 'rgb('+cpColor(R, alpha)+', '+cpColor(G, alpha)+', '+cpColor(B, alpha)+')'
+
+                    function cpColor(deci_code, alp){
+                        const colorCode=deci_code*alp + 255*(1 - alp);
+                        return Math.floor(colorCode).toString(10); }}
+
+
+                function rgba_trance(color_val){
+                    let trance_val;
+                    let c_val_arr=color_val.split(',');
+                    if(c_val_arr.length==3){
+                        trance_val=1; }
+                    else{
+                        trance_val=c_val_arr[3].replace(/[^0-9]/g, '')/10; }
+                    return trance_val; }
+
+            }}} // bg_color()
+
+
+
+    function import_color(sw, target, type){
+        let color_label;
+        let icon_button;
+
+        editor_iframe=document.querySelector('.cke_wysiwyg_frame');
+        iframe_doc=editor_iframe.contentWindow.document;
+        let selection=iframe_doc.getSelection();
+
+        if(ua==0){
+            color_label=document.querySelector('#cke_16_label');
+            icon_button=document.querySelector('#cke_17'); }
+        else if(ua==1){
+            color_label=document.querySelector('#cke_15_label');
+            icon_button=document.querySelector('#cke_16'); }
+
+        let target_p=color_label;
+        let monitor_p=new MutationObserver(get_copy);
+
+        sw.onclick=function(event){
+            if(task==1){
+                selection.removeAllRanges(); // 記事中の選択に誤指定を防止
+                icon_button.click();
+                monitor_p.observe(target_p, {attributes: true}); }}
+
+
+        function get_copy(){
+            if(task==1){
+                if(type=='bg'){
+                    sw.style.backgroundColor=color_label.style.backgroundColor;
+                    target.style.backgroundColor=sw.style.backgroundColor;
+                    sw.style.opacity=2; }
+                if(type=='bd'){
+                    sw.style.backgroundColor=color_label.style.backgroundColor;
+                    setting[0]=sw.style.backgroundColor;
+                    write_locals(setting); }}
+            monitor_p.disconnect(); }
+
+
+        document.addEventListener('mousedown', function(){
+            monitor_p.disconnect(); });
+
+
+        if(document.querySelector('.cke_wysiwyg_frame')!=null){
+            editor_iframe=document.querySelector('.cke_wysiwyg_frame');
+            if(editor_iframe){
+                iframe_doc=editor_iframe.contentWindow.document;
+                if(iframe_doc){
+                    iframe_doc.addEventListener('mousedown', function(){
+                        monitor_p.disconnect(); }); }}}
+
+
+        let target_body=document.querySelector('.l-body');
+        let monitor_generator=new MutationObserver(stealth);
+        monitor_generator.observe(target_body, {childList: true, subtree: true});
+
+        function stealth(){
+            let color_generator=document.querySelector('.ck-l-colorGenerator');
+            if(color_generator){
+                color_generator.addEventListener('mousedown', function(event){
+                    event.stopImmediatePropagation(); }); }}
+
+    } // import_color()
+
+
+
+    function bd_color(){
+        if(task==1){
+            let lbpo_color=document.querySelector('#lbpo_color');
+            lbpo_color.style.backgroundColor=setting[0];
+            import_color(lbpo_color, '' , 'bd');
+        }} // bd_color()
+
+
+
+    function bd_width(){
+        if(task==1){
+            let lpoborder=document.querySelector('#lpoborder');
+            let lbpo_disp=document.querySelector('#lbpo_disp');
+            lpoborder.value=setting[1];
+            lbpo_disp.textContent=lpoborder.value+'px';
+
+            lpoborder.onchange=function(){
+                lbpo_disp.textContent=lpoborder.value+'px';
+                setting[1]=lpoborder.value;
+                write_locals(setting); }
+        }} // bd_width()
+
+
+
+    function mem_plus(){
+        let memopo_plus=document.querySelector('#memopo_plus');
+        if(memopo_plus){
+            memopo_plus.onclick=function(){
+                let ok=confirm(
+                    "　　 🟠 現在の Pick Card 設定を登録します\n"+
+                    "　　　　これまでの登録を上書きして良いですか？\n");
+
+                if(ok){
+                    setting[2]=setting[0];
+                    setting[3]=setting[1];
+
+                    let editor=iframe_doc.querySelector('.cke_editable');
+                    if(editor){
+                        let warH=editor.querySelector('.warH');
+                        if(warH){
+                            let warH_bgc=warH.style.backgroundColor;
+                            if(warH_bgc){
+                                setting[4]=warH_bgc; }
+                            let warH_flex=warH.style.justifyContent;
+                            if(warH_flex){
+                                setting[5]=warH_flex; }}}
+
+                    write_locals(setting); }}
+
+        }} // mem_plus()
+
+
+
+    function mem_paste(){
+        let memopo_paste=document.querySelector('#memopo_paste');
+        if(memopo_paste){
+            memopo_paste.onclick=function(){
+
+                let lbpo_color=document.querySelector('#lbpo_color');
+                setting[0]=setting[2];
+                lbpo_color.style.backgroundColor=setting[2];
+
+                let lpoborder=document.querySelector('#lpoborder');
+                let lbpo_disp=document.querySelector('#lbpo_disp');
+                setting[1]=setting[3];
+                lpoborder.value=setting[3];
+                lbpo_disp.textContent=lpoborder.value+'px';
+
+                let lcpo_color=document.querySelector('#lcpo_color');
+                let lcpo_trance=document.querySelector('#lcpo_trance');
+                lcpo_color.style.backgroundColor=setting[4];
+                lcpo_trance.value=1;
+                let editor=iframe_doc.querySelector('.cke_editable');
+                if(editor){
+                    let warH=editor.querySelector('.warH');
+                    if(warH){
+                        warH.style.backgroundColor=setting[4];
+                        warH.style.justifyContent=setting[5];
+                        bg_color();
+                        flex_set();
+                    }}}
+
+        }} // mem_paste()
+
+
+} // main
