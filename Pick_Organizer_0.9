@@ -1,9 +1,9 @@
 // ==UserScript==
-// @name         Pick Organizer ⭐
-// @namespace    http://tampermonkey.net/
-// @version      0.9
-// @description  通常表示でピックカードの配置管理「Ctrl+F10」「Shift+F10」
-// @author       Ameba Blog User
+// @name        Pick Organizer ⭐
+// @namespace        http://tampermonkey.net/
+// @version        0.9
+// @description        通常表示でピックカードの配置管理「Ctrl+F10」「Shift+F10」
+// @author        Ameba Blog User
 // @match        https://blog.ameba.jp/ucs/entry/srventryinsertinput.do*
 // @match        https://blog.ameba.jp/ucs/entry/srventryupdateinput.do*
 // @grant        none
