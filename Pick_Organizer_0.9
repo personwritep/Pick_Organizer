@@ -6,6 +6,7 @@
 // @author        Ameba Blog User
 // @match        https://blog.ameba.jp/ucs/entry/srventryinsertinput.do*
 // @match        https://blog.ameba.jp/ucs/entry/srventryupdateinput.do*
+// @icon        https://www.google.com/s2/favicons?sz=64&domain=ameblo.jp
 // @grant        none
 // @updateURL        https://github.com/personwritep/Pick_Organizer/raw/main/Pick_Organizer.user.js
 // @downloadURL        https://github.com/personwritep/Pick_Organizer/raw/main/Pick_Organizer.user.js
